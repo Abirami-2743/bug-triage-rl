@@ -1,0 +1,68 @@
+name: bug-triage-rl
+version: 0.1.0
+description: "Bug Triage & Escalation Desk — OpenEnv RL environment for intelligent bug management"
+author: "Abiraminayagi"
+license: MIT
+
+environment:
+  type: rl
+  framework: openenv
+  api:
+    reset: POST /reset
+    step: POST /step
+    state: GET /state
+    grade: GET /grade
+  observation_space: "Dict with bug queue (severity, SLA, affected users), team capacity, system metrics"
+  action_space: "Discrete: assign / escalate / defer / close"
+  reward_range: [-1.0, 1.0]
+  max_episode_steps: 100
+
+tasks:
+  - name: easy
+    description: "Simple bugs, relaxed SLAs, full team available"
+    difficulty: easy
+    max_bugs: 8
+    team_size: 3
+    passing_score: 0.5
+    grader: score >= 0.5
+
+  - name: medium
+    description: "Mixed severity bugs, SLA pressure, partial team"
+    difficulty: medium
+    max_bugs: 15
+    team_size: 4
+    passing_score: 0.6
+    grader: score >= 0.6
+
+  - name: hard
+    description: "Critical bugs, SLA overdue, team overwhelmed, crisis events"
+    difficulty: hard
+    max_bugs: 25
+    team_size: 8
+    passing_score: 0.7
+    grader: score >= 0.7
+
+evaluation:
+  baseline_agent: llm
+  inference_script: inference.py
+  evaluation_episodes: 3
+  timeout_seconds: 1200
+  structured_logging: true
+  log_format: "[START] / [STEP] / [END]"
+
+dependencies:
+  - python>=3.10
+  - fastapi>=0.104.0
+  - pydantic>=2.0.0
+  - numpy>=1.24.0
+  - openai>=1.0.0
+  - gymnasium>=0.29.0
+
+huggingface:
+  space_id: Abiraminayagi/bug-triage-rl
+  sdk: docker
+  tags:
+    - openenv
+    - reinforcement-learning
+    - bug-triage
+    - rl-environment
