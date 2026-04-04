@@ -29,7 +29,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Environment instances per task level
 envs: Dict[str, BugTriageEnvironment] = {}
 
 
@@ -40,7 +39,7 @@ class ResetRequest(BaseModel):
 
 class StepRequest(BaseModel):
     task_level: str = "medium"
-    action_type: str  # assign / escalate / defer / close
+    action_type: str
     bug_id: str
     developer_id: Optional[str] = None
 
@@ -75,8 +74,11 @@ def health():
 
 
 @app.post("/reset")
-def reset(request: ResetRequest):
-    """Reset environment and start new episode"""
+def reset(request: Optional[ResetRequest] = None):
+    """Reset environment — handles empty body gracefully"""
+    if request is None:
+        request = ResetRequest()
+
     if request.task_level not in ["easy", "medium", "hard"]:
         raise HTTPException(400, "task_level must be easy, medium, or hard")
 
@@ -160,14 +162,13 @@ def list_tasks():
     }
 
 
-# Also expose flat API for frontend
 @app.post("/env/init")
-def env_init(request: ResetRequest):
+def env_init(request: Optional[ResetRequest] = None):
     return reset(request)
 
 
 @app.post("/env/reset")
-def env_reset(request: ResetRequest):
+def env_reset(request: Optional[ResetRequest] = None):
     return reset(request)
 
 
@@ -209,7 +210,6 @@ def env_ai_step(task_level: str = "medium"):
 
     open_bugs.sort(key=lambda b: b.priority_score, reverse=True)
     top_bug = open_bugs[0]
-
     available_devs = [d for d in env.team_state.developers if d.is_available]
 
     if top_bug.age_hours >= top_bug.sla_hours:
@@ -265,6 +265,7 @@ def env_summary(task_level: str = "medium"):
 def main():
     port = int(os.environ.get("PORT", 7860))
     uvicorn.run("server.app:app", host="0.0.0.0", port=port, reload=False)
+
 
 if __name__ == "__main__":
     main()
