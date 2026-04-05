@@ -4,12 +4,13 @@ emoji: 🐛
 colorFrom: red
 colorTo: blue
 sdk: docker
+app_port: 7860
+base_path: /docs
 pinned: false
 tags:
   - openenv
   - reinforcement-learning
   - bug-triage
-  - rl-environment
 ---
 
 # Bug Triage & Escalation Desk — OpenEnv RL Environment
@@ -20,11 +21,21 @@ An OpenEnv-based reinforcement learning environment where an AI agent learns to 
 
 Every software team faces the same challenge: a flood of bugs with varying severity, tight SLA deadlines, and limited developer capacity. This environment trains RL agents to make optimal triage decisions — exactly what a senior engineering manager does every day.
 
+## Quick Start
+
+```bash
+git clone https://github.com/Abirami-2743/bug-triage-rl
+cd bug-triage-rl
+docker build -t bug-triage-rl .
+docker run -p 7860:7860 bug-triage-rl
+curl http://localhost:7860/health
+```
+
 ## Environment Overview
 
 | Property | Value |
 |----------|-------|
-| Framework | OpenEnv + Gymnasium |
+| Framework | OpenEnv + FastAPI |
 | Action Space | Discrete(4): assign, escalate, defer, close |
 | Observation Space | Dict: bug queue + team state + system metrics |
 | Reward Range | [-1.0, 1.0] |
@@ -33,11 +44,9 @@ Every software team faces the same challenge: a flood of bugs with varying sever
 
 ## Action Space
 
-The agent can take 4 actions on any open bug:
-
 | Action | Description | Good When |
 |--------|-------------|-----------|
-| `assign` | Assign bug to an available developer | Developer available with matching skills |
+| `assign` | Assign bug to available developer | Developer available with matching skills |
 | `escalate` | Escalate to urgent status | Bug is overdue (SLA > 100%) or Critical severity |
 | `defer` | Push bug to later | Low priority bug, team fully loaded |
 | `close` | Mark bug as resolved | Bug is fixed or invalid |
@@ -90,15 +99,13 @@ The agent can take 4 actions on any open bug:
 
 ## Reward Function
 
-Rewards are calculated per step based on multiple signals:
-
 | Component | Description |
 |-----------|-------------|
 | Base reward | Action type baseline (+0.2 to +0.5) |
 | Severity modifier | Critical bugs handled correctly = big bonus |
 | SLA reward | Addressing overdue bugs = positive reward |
-| Efficiency reward | Assigning to least-loaded available dev |
-| Queue health | Improvement in queue health score |
+| Efficiency reward | Assigning to least-loaded available developer |
+| Queue health | Improvement in overall queue health score |
 | Penalties | Deferring critical bugs, unnecessary escalations |
 
 ## Tasks
@@ -134,69 +141,55 @@ Rewards are calculated per step based on multiple signals:
 | `/reset` | POST | Start new episode |
 | `/step` | POST | Take one action |
 | `/state` | GET | Current episode state |
-| `/grade` | GET | Episode score (0.0–1.0) |
+| `/grade` | GET | Episode score (0.0-1.0) |
 | `/tasks` | GET | List all tasks |
 | `/docs` | GET | Interactive API docs |
-
-## Setup Instructions
-
-### Local Setup
-
-```bash
-# Clone the repo
-git clone https://github.com/Abirami-2743/bug-triage-rl
-cd bug-triage-rl
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the server
-uvicorn server.app:app --host 0.0.0.0 --port 8000
-
-# Test it
-curl http://localhost:8000/health
-```
-
-### Docker Setup
-
-```bash
-# Build
-docker build -t bug-triage-rl .
-
-# Run
-docker run -p 8000:7860 bug-triage-rl
-
-# Test
-curl http://localhost:8000/health
-```
-
-### Run Inference
-
-```bash
-# Set environment variables
-export API_BASE_URL="https://router.huggingface.co/v1"
-export MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"
-export HF_TOKEN="your-hf-token"
-
-# Run baseline inference
-python inference.py
-```
 
 ## Baseline Scores
 
 | Task | Score | Steps | Status |
 |------|-------|-------|--------|
-| Easy | 0.997 | 8 | PASS ✅ |
-| Medium | 0.891 | 15 | PASS ✅ |
-| Hard | 0.446 | 27 | PASS ✅ |
-| **Average** | **0.778** | — | **PASS** ✅ |
+| Easy | 0.997 | 8 | PASS |
+| Medium | 0.891 | 15 | PASS |
+| Hard | 0.446 | 27 | PASS |
+| Average | 0.778 | - | PASS |
+
+## Run Inference
+
+```bash
+export API_BASE_URL="https://router.huggingface.co/v1"
+export MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"
+export HF_TOKEN="your-hf-token"
+python inference.py
+```
+
+## Project Structure
+
+```
+bug-triage-rl/
+├── server/
+│   ├── app.py
+│   ├── bug_triage_environment.py
+│   └── __init__.py
+├── src/
+│   ├── models.py
+│   ├── bug_generator.py
+│   ├── reward_function.py
+│   └── environment_gymnasium.py
+├── inference.py
+├── Dockerfile
+├── openenv.yaml
+├── pyproject.toml
+├── requirements.txt
+└── README.md
+```
 
 ## Live Demo
 
-- **HF Space:** https://huggingface.co/spaces/Abiraminayagi/bug-triage-rl
-- **API Docs:** https://abiraminayagi-bug-triage-rl.hf.space/docs
-- **Health:** https://abiraminayagi-bug-triage-rl.hf.space/health
+- HF Space: https://huggingface.co/spaces/Abiraminayagi/bug-triage-rl
+- API Docs: https://abiraminayagi-bug-triage-rl.hf.space/docs
+- Health: https://abiraminayagi-bug-triage-rl.hf.space/health
 
 ## Built For
 
-OpenEnv AI Hackathon 2026 — Meta × Hugging Face × Scaler School of Technology
+OpenEnv AI Hackathon 2026 - Meta x Hugging Face x Scaler School of Technology
