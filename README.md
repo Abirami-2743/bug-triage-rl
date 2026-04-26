@@ -141,16 +141,20 @@ The environment is evaluated using Qwen 72B via HuggingFace router, acting as an
 - Passing score: 0.7
 - Baseline score: 0.40 - 0.80
 
-## Results
+## 📊 Training Results
 
-| Task Level | Score Range | Status |
-|------------|-------------|--------|
-| Easy | 0.95 - 0.99 | PASS |
-| Medium | 0.85 - 0.92 | PASS |
-| Hard | 0.40 - 0.80 | PASS |
-| Average | 0.73 - 0.90 | PASS |
+![GRPO Training Results](grpo_training_results.png)
 
-The agent performs strongly in structured scenarios and demonstrates robustness under increasing complexity.
+*Left: Real reward curve over 500 GRPO training steps. Right: Before vs After comparison.*
+
+| Model | Task | Score | Status |
+|---|---|---|---|
+| Qwen 72B zero-shot | Easy | 0.997 | ✅ PASS |
+| Qwen 72B zero-shot | Medium | 0.891 | ✅ PASS |
+| Qwen 1.5B (no training) | Hard | 0.446 | ❌ FAIL |
+| **Qwen 1.5B + GRPO** | **Hard** | **0.710** | **✅ PASS** |
+
+GRPO training pushed Hard mode above the 0.7 passing threshold (+0.264 improvement).
 
 ## Why This Matters
 
@@ -214,6 +218,31 @@ bug-triage-rl/
 - HF Space: https://huggingface.co/spaces/Abiraminayagi/bug-triage-rl
 - API Docs: https://abiraminayagi-bug-triage-rl.hf.space/docs
 - Health: https://abiraminayagi-bug-triage-rl.hf.space/health
+
+## 🤖 Before vs After Behavior
+
+Same bug state. Different agent decisions after GRPO training.
+
+**Bug:** "Auth failing on mobile" | CRITICAL | SLA: 156% overdue
+
+**BEFORE training:**
+```json
+{"action_type": "defer", "bug_id": "BUG-001"}
+```
+❌ Wrong — critical + overdue should never be deferred
+
+**AFTER GRPO training:**
+```json
+{"action_type": "escalate", "bug_id": "BUG-001"}
+```
+✅ Correct — SLA breached, critical severity = escalate immediately
+
+## 🔗 Resources
+
+- 📓 [Training Notebook](YOUR_KAGGLE_URL)
+- 📝 [Blog Post](./blog.md)
+- 🧠 [Trained Model](https://huggingface.co/Abiraminayagi/bug-triage-grpo-trained)
+- 🚀 [Live Demo](https://abiraminayagi-bug-triage-rl.hf.space/docs)
 
 ## Built For
 
