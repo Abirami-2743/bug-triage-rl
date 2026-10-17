@@ -104,18 +104,22 @@ Each decision impacts long-term system performance and is rewarded accordingly.
 
 ## Reward Function
 
+The per-step reward is the sum of six components, clipped to [-1.0, 1.0]:
+
 | Component | Description |
 |-----------|-------------|
-| Base reward | Action type baseline (+0.2 to +0.5) |
-| Severity modifier | Critical bugs handled correctly = big bonus |
+| Base reward | Action type baseline (+0.2 to +0.5 for assign/close; defer is negative) |
+| Severity modifier | Critical bugs handled correctly = big bonus; deferring them is penalized |
 | SLA reward | Addressing overdue bugs = positive reward |
-| Efficiency reward | Assigning to least-loaded available developer |
+| Efficiency reward | Assigning while keeping developer load balanced |
 | Queue health | Improvement in overall queue health score |
-| Penalties | Deferring critical bugs, unnecessary escalations |
+| Penalties | Deferring critical bugs, unnecessary escalations, closing too quickly |
+
+Reward magnitudes grow with difficulty, so mistakes cost more on harder tasks. A separate episode grader (0.0 to 1.0) combines SLA compliance, queue health, team utilization and efficiency.
 
 ## Agent
 
-The environment is evaluated using Qwen 72B via HuggingFace router, acting as an autonomous decision-making agent. The agent interprets the bug queue state, reasons about SLA constraints and developer capacity, and selects optimal triage actions. This demonstrates the potential of LLMs in structured DevOps decision-making beyond text generation.
+The environment is evaluated using Qwen 72B via HuggingFace router, acting as an autonomous decision-making agent. The agent interprets the bug queue state, reasons about SLA constraints and developer capacity, and selects optimal triage actions. If the model returns an invalid response, a rule-based fallback policy picks the action.
 
 ## Tasks
 
@@ -124,14 +128,12 @@ The environment is evaluated using Qwen 72B via HuggingFace router, acting as an
 - 3 developers, all available
 - Relaxed SLA deadlines (48h+)
 - Passing score: 0.5
-- Baseline score: 0.95 - 0.99
 
 ### Medium
 - 15 bugs (mixed severity, some Critical)
 - 4 developers, partial availability
 - Moderate SLA pressure (12-24h)
 - Passing score: 0.6
-- Baseline score: 0.85 - 0.92
 
 ### Hard
 - 25 bugs (mostly Critical/High)
@@ -139,22 +141,33 @@ The environment is evaluated using Qwen 72B via HuggingFace router, acting as an
 - Most SLAs already overdue
 - New bugs stream in every 10 steps
 - Passing score: 0.7
-- Baseline score: 0.40 - 0.80
 
-## 📊 Training Results
+## 📊 Results
 
-![GRPO Training Results](grpo_training_results.png)
+### Baseline scores (episode grader, 0.0 to 1.0)
 
-*Left: Real reward curve over 500 GRPO training steps. Right: Before vs After comparison.*
-
-| Model | Task | Score | Status |
+| Task | Baseline score | Passing score | Status |
 |---|---|---|---|
-| Qwen 72B zero-shot | Easy | 0.997 | ✅ PASS |
-| Qwen 72B zero-shot | Medium | 0.891 | ✅ PASS |
-| Qwen 1.5B (no training) | Hard | 0.446 | ❌ FAIL |
-| **Qwen 1.5B + GRPO** | **Hard** | **0.710** | **✅ PASS** |
+| Easy | 0.997 | 0.5 | ✅ PASS |
+| Medium | 0.891 | 0.6 | ✅ PASS |
+| Hard | 0.446 | 0.7 | ❌ FAIL |
 
-GRPO training pushed Hard mode above the 0.7 passing threshold (+0.264 improvement).
+Hard is intentionally difficult: 25 bugs, mostly critical, overdue SLAs, an overwhelmed team and streaming arrivals.
+
+### GRPO training experiment (Hard level)
+
+Qwen2.5-1.5B-Instruct with LoRA (r=16), trained with GRPO using HuggingFace TRL and Unsloth for 500 steps (learning rate 2e-6, 4 generations per prompt, temperature 1.8) on a free Kaggle T4 GPU.
+
+| Evaluation (5 Hard episodes, fresh seeds) | Score |
+|---|---|
+| Before training | 0.951 |
+| After training | 0.940 |
+
+**Takeaway:** this run did not produce a measurable improvement. The evaluation score here is (average per-step reward + 1) / 2, so it is **not comparable** to the grader scores in the baseline table above. The training reward also used shaped bonuses and short rule-based rollouts, and five evaluation episodes is a small sample.
+
+**Next steps:** train across all difficulty levels, evaluate with more episodes, and evaluate with the episode grader score so results are directly comparable to the baselines.
+
+Training notebook: [notebooks/bug_triage_grpo_kaggle.ipynb](notebooks/bug_triage_grpo_kaggle.ipynb)
 
 ## Why This Matters
 
@@ -198,18 +211,23 @@ python inference.py
 bug-triage-rl/
 ├── server/
 │   ├── app.py                    # FastAPI server
-│   ├── bug_triage_environment.py # Core RL environment
+│   ├── bug_triage_environment.py # Environment served by the API
 │   └── __init__.py
 ├── src/
 │   ├── models.py                 # Pydantic models
 │   ├── bug_generator.py          # Bug generation
 │   ├── reward_function.py        # Reward calculation
-│   └── environment_gymnasium.py  # Gymnasium wrapper
+│   ├── environment.py            # Core environment logic
+│   ├── tasks.py                  # Episode graders
+│   └── environment_gymnasium.py  # Gymnasium wrapper (used for training)
+├── notebooks/
+│   └── bug_triage_grpo_kaggle.ipynb  # GRPO training run
 ├── inference.py                  # Baseline inference script
 ├── Dockerfile                    # Container definition
 ├── openenv.yaml                  # OpenEnv manifest
 ├── pyproject.toml                # Package config
 ├── requirements.txt              # Dependencies
+├── blog.md                       # Project write-up
 └── README.md
 ```
 
@@ -219,30 +237,32 @@ bug-triage-rl/
 - API Docs: https://abiraminayagi-bug-triage-rl.hf.space/docs
 - Health: https://abiraminayagi-bug-triage-rl.hf.space/health
 
-## 🤖 Before vs After Behavior
+## Example Decision (Illustrative)
 
-Same bug state. Different agent decisions after GRPO training.
+This is an illustration of the behavior the reward function encourages. It is not a recorded model output.
 
 **Bug:** "Auth failing on mobile" | CRITICAL | SLA: 156% overdue
 
-**BEFORE training:**
+Poor decision, penalized by the reward:
 ```json
 {"action_type": "defer", "bug_id": "BUG-001"}
 ```
-❌ Wrong — critical + overdue should never be deferred
 
-**AFTER GRPO training:**
+Good decision, rewarded (SLA breached, critical severity):
 ```json
 {"action_type": "escalate", "bug_id": "BUG-001"}
 ```
-✅ Correct — SLA breached, critical severity = escalate immediately
 
 ## 🔗 Resources
 
-- 📓 [Training Notebook](YOUR_KAGGLE_URL)
+- 📓 [Training Notebook](notebooks/bug_triage_grpo_kaggle.ipynb)
 - 📝 [Blog Post](./blog.md)
-- 🧠 [Trained Model](https://huggingface.co/Abiraminayagi/bug-triage-grpo-trained)
 - 🚀 [Live Demo](https://abiraminayagi-bug-triage-rl.hf.space/docs)
+
+## 👥 Team
+
+Built by Team FYA.dev for the OpenEnv AI Hackathon 2026 (Meta x Hugging Face x Scaler School of Technology).
+
 
 ## Built For
 
