@@ -167,7 +167,7 @@ Qwen2.5-1.5B-Instruct with LoRA (r=16), trained with GRPO using HuggingFace TRL 
 
 **Next steps:** train across all difficulty levels, evaluate with more episodes, and evaluate with the episode grader score so results are directly comparable to the baselines.
 
-Training notebook: [notebooks/bug_triage_grpo_kaggle.ipynb](notebooks/bug_triage_grpo_kaggle.ipynb)
+Training notebook: [bug-triage-final.ipynb](bug-triage-final.ipynb)
 
 ## Why This Matters
 
@@ -220,8 +220,8 @@ bug-triage-rl/
 │   ├── environment.py            # Core environment logic
 │   ├── tasks.py                  # Episode graders
 │   └── environment_gymnasium.py  # Gymnasium wrapper (used for training)
-├── notebooks/
-│   └── bug_triage_grpo_kaggle.ipynb  # GRPO training run
+├── bug-triage-final.ipynb        # GRPO training notebook
+├── grpo_training_results.png     # Training results chart
 ├── inference.py                  # Baseline inference script
 ├── Dockerfile                    # Container definition
 ├── openenv.yaml                  # OpenEnv manifest
@@ -255,7 +255,7 @@ Good decision, rewarded (SLA breached, critical severity):
 
 ## 🔗 Resources
 
-- 📓 [Training Notebook](notebooks/bug_triage_grpo_kaggle.ipynb)
+- 📓 [Training Notebook](bug-triage-final.ipynb)
 - 📝 [Blog Post](./blog.md)
 - 🚀 [Live Demo](https://abiraminayagi-bug-triage-rl.hf.space/docs)
 
