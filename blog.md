@@ -3,7 +3,7 @@
 **OpenEnv AI Hackathon 2026 — Meta × Hugging Face × Scaler**
 **Team FYA.dev**
 
-> **TL;DR:** We built a high-fidelity DevOps simulation where an LLM must triage a live bug queue under real operational pressure. Using GRPO + Unsloth on a 1.5B model, the agent went from randomly deferring Critical bugs to correctly escalating overdue SLA breaches — a fundamental behavioral shift, not just better numbers.
+> **TL;DR:** We built a DevOps simulation where an LLM must triage a live bug queue under SLA and team-capacity pressure, with a REST API and a Gymnasium interface. We then ran a GRPO fine-tuning experiment on a 1.5B model. Evaluation scores did not change measurably (0.951 → 0.940 on 5 Hard episodes), so this is a working environment and training pipeline, not yet evidence of improvement.
 
 ---
 
@@ -13,7 +13,7 @@ It's 2 AM. Production is down. 25 bugs in the queue. 8 developers — half at ca
 
 **This is bug triage under pressure.** Every engineering team — from early startups to Meta — does this manually, every single day. A wrong call cascades: a deferred Critical bug becomes a full outage; an overloaded developer misses three deadlines; a queue that looks manageable at 9 AM is unmanageable by noon.
 
-No standardized RL benchmark exists for this. We built one.
+We could not find a standard RL benchmark for this, so we built one.
 
 ---
 
@@ -32,7 +32,7 @@ Bug Queue (dynamic)  +  Developer Team  →  Agent  →  Action
 | Framework | OpenEnv + FastAPI + Gymnasium |
 | Actions | assign · escalate · defer · close |
 | Observation | Bug queue + team state + system metrics |
-| Reward range | [−1.0, +1.0] — 5-component composite |
+| Reward range | [−1.0, +1.0] — 6-component composite |
 | Hard mode | 25 bugs, 8 devs overwhelmed, streaming arrivals every 10 steps |
 
 ### Why This Is Genuinely Hard
@@ -44,9 +44,9 @@ This isn't "pick the right label." It's a **sequential problem with cascading co
 - A bug at 95% SLA is fundamentally different from one at 156% SLA — urgency is continuous
 - You can't assign a frontend dev to a database deadlock — skills and capacity both matter
 
-### Reward Design That Can't Be Gamed
+### Reward Design
 
-5 independent reward components — the agent cannot exploit a single shortcut:
+6 reward components, summed per step and clipped to [−1, +1]:
 
 | Component | What It Teaches |
 |-----------|----------------|
@@ -55,6 +55,7 @@ This isn't "pick the right label." It's a **sequential problem with cascading co
 | SLA reward | Urgency scales continuously with deadline proximity |
 | Efficiency reward | Balance workload — don't overload one dev while others are idle |
 | Queue health Δ | Systemic improvement across the full episode |
+| Penalties | Deferring critical bugs, unnecessary escalations, closing too quickly |
 
 **Episode Score = SLA Compliance × 0.4 + Queue Health × 0.3 + Team Utilization × 0.2 + Efficiency × 0.1**
 
@@ -73,7 +74,7 @@ We used **GRPO** (Group Relative Policy Optimization) via HuggingFace TRL with *
 | Steps | 500 on Hard difficulty |
 | Hardware | Kaggle T4 (free) |
 
-GRPO reward = environment reward + format bonus (+0.3 valid JSON) + action validity (+0.2)
+GRPO training reward (see the notebook): the environment's reward for the model's chosen action, plus small shaping terms (+0.25 for assigning or escalating a critical bug, +0.15 for escalating an overdue bug, −0.35 for deferring a critical bug) and two discounted rule-based follow-up steps. Unparseable JSON scores about −0.5 and an invalid action type about −0.3.
 
 📓 **Full notebook (re-runnable):** [kaggle.com/code/brindapalanimuthu/bug-triage-final](https://www.kaggle.com/code/brindapalanimuthu/bug-triage-final)
 
@@ -82,34 +83,34 @@ GRPO reward = environment reward + format bonus (+0.3 valid JSON) + action valid
 ## Results
 
 ![GRPO Training Results — reward curve and before/after scores](grpo_training_results.png)
-*Left: Training reward curve over 500 steps (Hard mode) — rolling average improves from −0.40 to −0.30. Right: Normalized episode scores before and after GRPO — all tiers pass the threshold.*
+*Left: Training reward curve over 500 steps (Hard mode). The smoothed average rises from about −0.35 to about −0.29; the first and last raw points are −0.40 and −0.30. Right: Normalized scores. The Easy and Medium bars are Qwen 72B baselines entered by hand, and the Hard bars are the 1.5B model before and after GRPO on 5 episodes. The 0.7 line is the grader's passing score and is not directly comparable with these normalized scores.*
 
-The reward curve shows the agent moving from noisy, random decisions (−0.40) toward more consistent triage behavior (−0.30) over 500 steps. The before/after scores (0.951 → 0.941) are comparable — indicating the **1.5B base model was already strong on Hard tier**. The real evidence of learning is in behavior, not just scores.
+The training reward rose slightly over 500 steps, but it is a shaped training signal, so a rising curve does not by itself show better triage. The before/after evaluation scores are essentially unchanged (0.951 → 0.940), which suggests the **1.5B base model was already strong on Hard under this metric**. With only 5 evaluation episodes, we treat this as no measurable improvement.
 
 ---
 
-## The Real Proof: Before vs. After Behavior
+## Illustrative Example: Poor vs. Good Decision
 
-Same bug. Same state. Completely different decisions.
+This is an illustration of the behavior the reward function encourages. It is not a recorded model output.
 
 **Situation:** `BUG-001` — "Authentication failing on mobile"
 - Severity: **CRITICAL**
 - SLA: **156% overdue** (breach already in progress)
 - Users affected: **1,250**
 
-**Before GRPO:**
+**Poor decision:**
 ```json
 {"action_type": "defer", "bug_id": "BUG-001", "developer_id": null}
 ```
 ❌ Catastrophic. Deferring a Critical bug at 156% SLA triggers the harshest penalty in the reward function — and in real life, means 1,250 users stay blocked while the queue continues to deteriorate.
 
-**After GRPO:**
+**Good decision:**
 ```json
 {"action_type": "escalate", "bug_id": "BUG-001", "developer_id": null}
 ```
-✅ Correct. SLA breached + Critical severity = immediate escalation. The agent learned this policy purely through interaction with the environment — not from rules, not from labels.
+✅ Rewarded. SLA breached + Critical severity = immediate escalation.
 
-**This is the core result.** The agent learned *when deferral is safe and when it is catastrophic* — a distinction that requires simultaneously reasoning about severity, SLA status, and queue health. That's not memorization; bugs are randomly generated each episode.
+The reward function separates these cases by combining severity, SLA status, and queue health. Bugs are randomly generated each episode, so a policy cannot simply memorize bug IDs. Measuring how often a trained model makes the poor decision versus the good one is a next step we have not done yet.
 
 ---
 
@@ -142,11 +143,11 @@ The live Swagger UI at `/docs` lets you run all of this interactively in the bro
 
 ## Why This Matters
 
-Bug triage is a **daily, high-stakes, high-frequency decision** at every software company. The cost of getting it wrong is measured in outages, SLA penalties, and engineer burnout. Yet no RL benchmark exists for it.
+Bug triage is a **daily, high-stakes, high-frequency decision** at every software company. The cost of getting it wrong is measured in outages, SLA penalties, and engineer burnout. We could not find a standard RL benchmark for it.
 
 Our environment fills that gap:
 - **Realistic complexity** — not a toy; Hard tier simulates active production incidents
-- **Informative reward signals** — 5 components, not binary success/failure
+- **Informative reward signals** — 6 components, not binary success/failure
 - **Difficulty scaling** — Easy to Hard, covering routine triage to full crisis management
 - **Open infrastructure** — fully OpenEnv compliant, Gymnasium compatible, Docker deployable
 
